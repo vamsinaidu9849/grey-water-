@@ -91,6 +91,14 @@ export interface TreatmentConsideration {
   priority: 'High' | 'Medium' | 'Low';
 }
 
+export interface DatasetAnalysisSummary {
+  rowCount: number;
+  averageScore: number;
+  classification: QualityClassification;
+  parameterAverages: Partial<Record<ParameterKey, number>>;
+  bestApplication: string;
+}
+
 export interface AnalysisResult {
   id: string;
   sampleId: string;
@@ -104,4 +112,6 @@ export interface AnalysisResult {
   xaiFactors: XAIFactor[];
   treatmentConsiderations: TreatmentConsideration[];
   summary: string;
+  datasetSummary?: DatasetAnalysisSummary;
+  analysisMode?: 'single' | 'dataset';
 }

@@ -13,7 +13,7 @@ import { WorkflowTimeline } from './components/HowItWorks/WorkflowTimeline';
 import { ArchitectureDiagram } from './components/HowItWorks/ArchitectureDiagram';
 import { ProjectOverview } from './components/About/ProjectOverview';
 import { PrintableReport } from './components/Report/PrintableReport';
-import { analyzeWaterQuality } from './services/analysisEngine';
+import { analyzeDataset, analyzeWaterQuality } from './services/analysisEngine';
 import { getSavedHistory, saveAnalysisToHistory } from './services/historyStorage';
 import type { AnalysisResult, WaterQualityParameters } from './types/waterQuality';
 
@@ -31,6 +31,12 @@ export function App() {
   const handleStartAnalysis = (params: WaterQualityParameters) => {
     setIsProcessing(true);
     const result = analyzeWaterQuality(params);
+    setCurrentAnalysis(result);
+  };
+
+  const handleDatasetAnalysis = (rows: WaterQualityParameters[]) => {
+    setIsProcessing(true);
+    const result = analyzeDataset(rows);
     setCurrentAnalysis(result);
   };
 
@@ -103,7 +109,10 @@ export function App() {
             )}
 
             {!isProcessing && !showPrintable && !currentAnalysis && (
-              <ParameterInputForm onAnalyze={handleStartAnalysis} />
+              <ParameterInputForm
+                onAnalyze={handleStartAnalysis}
+                onAnalyzeDataset={handleDatasetAnalysis}
+              />
             )}
           </div>
         )}

@@ -5,12 +5,172 @@ import { Activity, HelpCircle, RefreshCw, Sparkles, Thermometer, TestTube, Bug, 
 
 interface ParameterInputFormProps {
   onAnalyze: (params: WaterQualityParameters) => void;
+  onAnalyzeDataset?: (rows: WaterQualityParameters[]) => void;
 }
 
-export const ParameterInputForm: React.FC<ParameterInputFormProps> = ({ onAnalyze }) => {
+const DATASET_KEY_ALIASES: Record<string, string[]> = {
+  DO: ['DO', 'DISSOLVED_OXYGEN'],
+  BOD5: ['BOD5', 'BOD_5', 'BIOCHEMICAL_OXYGEN_DEMAND'],
+  COD: ['COD', 'CHEMICAL_OXYGEN_DEMAND'],
+  TDS: ['TDS', 'TOTAL_DISSOLVED_SOLIDS'],
+  EC: ['EC', 'ECOND', 'COND', 'CONDUCTIVITY'],
+  pH: ['PH', 'PH_VALUE', 'PH_LEVEL'],
+  TEMP: ['TEMP', 'TEMPERATURE'],
+  SAL: ['SAL', 'SALINITY'],
+  TUR: ['TUR', 'TURBIDITY'],
+  DS: ['DS', 'DISSOLVED_SOLIDS'],
+  NH4_N: ['NH4_N', 'NH4', 'AMMONIUM', 'AMMONIUM_AMMONIA'],
+  NO3_N: ['NO3_N', 'NO3', 'NITRATE'],
+  K: ['K', 'POTASSIUM'],
+  E_COLI: ['E_COLI', 'ECOLI', 'E_COLI_CFU_100_ML', 'ECOLI_CFU_100_ML']
+};
+
+const REQUIRED_DATASET_KEYS: ParameterKey[] = [
+  'DO', 'BOD5', 'COD', 'TDS', 'EC', 'pH', 'TEMP', 'SAL', 'TUR', 'DS', 'NH4_N', 'NO3_N', 'K', 'E_COLI'
+];
+
+const normalizeHeader = (value: string): string =>
+  value.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+
+const normalizeDatasetValue = (value: string): number => {
+  const cleaned = value.replace(/[^0-9.-]/g, '');
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const parseCsvRows = (text: string): WaterQualityParameters[] => {
+  const rows: string[][] = [];
+  let currentRow: string[] = [];
+  let currentValue = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+
+    if (ch === '"') {
+      if (inQuotes && text[i + 1] === '"') {
+        currentValue += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (ch === ',' && !inQuotes) {
+      currentRow.push(currentValue);
+      currentValue = '';
+      continue;
+    }
+
+    if ((ch === '\n' || ch === '\r') && !inQuotes) {
+      if (ch === '\r' && text[i + 1] === '\n') {
+        i += 1;
+      }
+      currentRow.push(currentValue);
+      if (currentRow.some((cell) => cell.trim() !== '')) {
+        rows.push(currentRow);
+      }
+      currentRow = [];
+      currentValue = '';
+      continue;
+    }
+
+    currentValue += ch;
+  }
+
+  if (currentValue || currentRow.length) {
+    currentRow.push(currentValue);
+    if (currentRow.some((cell) => cell.trim() !== '')) {
+      rows.push(currentRow);
+    }
+  }
+
+  if (rows.length < 2) {
+    throw new Error('CSV file must include a header row and at least one data row.');
+  }
+
+  const [headerRow, ...dataRows] = rows;
+  const headerMap = new Map<string, number>();
+
+  headerRow.forEach((header, index) => {
+    const normalized = normalizeHeader(header);
+    let matchedKey: string | null = null;
+
+    Object.entries(DATASET_KEY_ALIASES).forEach(([key, aliases]) => {
+      if (matchedKey) return;
+      if (aliases.some((alias) => alias === normalized || alias === normalized.replace(/_+/g, ''))) {
+        matchedKey = key;
+      }
+    });
+
+    if (!matchedKey) {
+      const fallback = normalized.replace(/_VALUE|_LEVEL|_MG_L|_CFU_100_ML|_PPT|_NTU|_C|_US_CM|_MS_CM|_PPM|_G_L$/g, '');
+      if (fallback) {
+        Object.keys(DATASET_KEY_ALIASES).forEach((key) => {
+          if (matchedKey) return;
+          const aliases = DATASET_KEY_ALIASES[key];
+          if (aliases.some((alias) => alias === fallback || alias === normalized)) {
+            matchedKey = key;
+          }
+        });
+      }
+    }
+
+    if (matchedKey) {
+      headerMap.set(matchedKey, index);
+    }
+  });
+
+  const missingKeys = REQUIRED_DATASET_KEYS.filter((key) => !headerMap.has(key));
+  const requiredPresent = REQUIRED_DATASET_KEYS.some((key) => headerMap.has(key));
+  if (!requiredPresent) {
+    throw new Error(`CSV is missing these required columns: ${REQUIRED_DATASET_KEYS.join(', ')}`);
+  }
+
+  return dataRows
+    .filter((row) => row.some((cell) => cell.trim() !== ''))
+    .map((row) => {
+      const record = {} as Record<string, number>;
+      REQUIRED_DATASET_KEYS.forEach((key) => {
+        const index = headerMap.get(key);
+        const rawValue = typeof index === 'number' ? row[index] ?? '' : '';
+        const parsedValue = normalizeDatasetValue(rawValue);
+        record[key] = index !== undefined && row[index] !== undefined && String(row[index]).trim() !== ''
+          ? parsedValue
+          : PARAMETER_CONFIGS[key].defaultValue;
+      });
+
+      if (missingKeys.length) {
+        missingKeys.forEach((key) => {
+          record[key] = PARAMETER_CONFIGS[key].defaultValue;
+        });
+      }
+
+      return {
+        DO: record.DO,
+        BOD5: record.BOD5,
+        COD: record.COD,
+        TDS: record.TDS,
+        EC: record.EC,
+        pH: record.pH,
+        TEMP: record.TEMP,
+        SAL: record.SAL,
+        TUR: record.TUR,
+        DS: record.DS,
+        NH4_N: record.NH4_N,
+        NO3_N: record.NO3_N,
+        K: record.K,
+        E_COLI: record.E_COLI
+      } as WaterQualityParameters;
+    });
+};
+
+export const ParameterInputForm: React.FC<ParameterInputFormProps> = ({ onAnalyze, onAnalyzeDataset }) => {
   const [formData, setFormData] = useState<WaterQualityParameters>({ ...DEMO_SAMPLE_DATA });
   const [errors, setErrors] = useState<Partial<Record<ParameterKey, string>>>({});
   const [activeTooltip, setActiveTooltip] = useState<ParameterKey | null>(null);
+  const [datasetError, setDatasetError] = useState<string>('');
 
   const handleChange = (key: ParameterKey, rawVal: string) => {
     const val = parseFloat(rawVal);
@@ -51,6 +211,34 @@ export const ParameterInputForm: React.FC<ParameterInputFormProps> = ({ onAnalyz
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onAnalyze(formData);
+  };
+
+  const handleDatasetUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const text = String(reader.result || '');
+        const rows = parseCsvRows(text);
+        if (!rows.length) {
+          throw new Error('No valid data rows were found in the CSV file.');
+        }
+        if (onAnalyzeDataset) {
+          onAnalyzeDataset(rows);
+        }
+        setDatasetError('');
+      } catch (error) {
+        setDatasetError(error instanceof Error ? error.message : 'The uploaded dataset could not be processed.');
+      }
+    };
+
+    reader.onerror = () => {
+      setDatasetError('The CSV file could not be read. Please try a different file.');
+    };
+
+    reader.readAsText(file);
   };
 
   // Group parameters by section
@@ -182,6 +370,29 @@ export const ParameterInputForm: React.FC<ParameterInputFormProps> = ({ onAnalyz
             <span>Reset</span>
           </button>
         </div>
+      </div>
+
+      <div className="glass-panel p-5 rounded-2xl border border-cyan-500/30 mb-8 bg-cyan-500/5">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">Dataset upload</p>
+            <h2 className="mt-1 text-xl font-bold text-white">Analyze a CSV dataset automatically</h2>
+          </div>
+
+          <label className="cursor-pointer inline-flex items-center justify-center gap-2 rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-4 py-2.5 text-sm font-semibold text-cyan-200 transition hover:bg-cyan-500/20">
+            <Sparkles className="w-4 h-4" />
+            <span>Upload CSV Dataset</span>
+            <input type="file" accept=".csv" onChange={handleDatasetUpload} className="hidden" />
+          </label>
+        </div>
+
+        <p className="mt-3 text-xs text-slate-300">
+          Required CSV columns: DO, BOD5, COD, TDS, EC, pH, TEMP, SAL, TUR, DS, NH4_N, NO3_N, K, E_COLI.
+        </p>
+
+        {datasetError && (
+          <p className="mt-3 rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-300">{datasetError}</p>
+        )}
       </div>
 
       {/* Main Input Form */}

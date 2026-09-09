@@ -85,6 +85,37 @@ function getParameterStatus(score: number, key: ParameterKey): ParameterStatus {
 /**
  * Main analysis function
  */
+export function analyzeDataset(rows: WaterQualityParameters[]): AnalysisResult {
+  if (!rows.length) {
+    throw new Error('No dataset rows were provided for analysis.');
+  }
+
+  const keys = Object.keys(PARAMETER_CONFIGS) as ParameterKey[];
+  const averages = {} as WaterQualityParameters;
+
+  keys.forEach((key) => {
+    const total = rows.reduce((sum, row) => sum + (row[key] ?? 0), 0);
+    averages[key] = total / rows.length;
+  });
+
+  const averagedAnalysis = analyzeWaterQuality(averages);
+  const bestApplication = averagedAnalysis.rankedOptions[0]?.application || 'Garden Irrigation';
+
+  return {
+    ...averagedAnalysis,
+    sampleId: `DATASET-${Math.floor(100000 + Math.random() * 900000)}`,
+    summary: `Dataset analysis completed for ${rows.length} samples. Average greywater quality score is ${averagedAnalysis.overallScore}/100 (${averagedAnalysis.classification}) with the strongest fit for ${bestApplication}.`,
+    datasetSummary: {
+      rowCount: rows.length,
+      averageScore: averagedAnalysis.overallScore,
+      classification: averagedAnalysis.classification,
+      parameterAverages: averages,
+      bestApplication
+    },
+    analysisMode: 'dataset'
+  };
+}
+
 export function analyzeWaterQuality(params: WaterQualityParameters): AnalysisResult {
   const keys = Object.keys(PARAMETER_CONFIGS) as ParameterKey[];
   const parameterAnalyses: ParameterAnalysis[] = [];
